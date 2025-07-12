@@ -229,7 +229,7 @@ sudo certbot --nginx -d yourdomain.com
    ```bash
    git clone <repository-url>
    cd telegram-shortlink
-   cp .env.docker .env
+   cp .env.example .env
    ```
 
 2. **Configure environment**:
@@ -284,5 +284,4 @@ MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/shortlink
 
 ### Documentation
 
-- 📖 **[DOCKER-SIMPLE.md](DOCKER-SIMPLE.md)** - Bot-only containerization (recommended)
-- 📖 **[DOCKER-DEPLOYMENT.md](DOCKER-DEPLOYMENT.md)** - Full stack with MongoDB and Nginx
+- 📖 **[DOCKER-DEPLOYMENT.md](DOCKER-DEPLOYMENT.md)** - Bot-only containerization (recommended)
