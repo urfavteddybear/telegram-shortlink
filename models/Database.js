@@ -31,7 +31,15 @@ class Database {
 
   async findShortLink(shortCode) {
     try {
-      return await ShortLink.findOne({ shortCode });
+      // Input validation
+      if (!shortCode || typeof shortCode !== 'string') {
+        throw new Error('Invalid shortCode parameter');
+      }
+
+      // Sanitize input
+      const sanitizedCode = shortCode.trim().substring(0, 20);
+      
+      return await ShortLink.findOne({ shortCode: sanitizedCode });
     } catch (error) {
       console.error('Error finding short link:', error);
       throw error;
@@ -40,11 +48,33 @@ class Database {
 
   async createShortLink(originalUrl, shortCode, createdBy) {
     try {
+      // Input validation
+      if (!originalUrl || !shortCode || !createdBy) {
+        throw new Error('Missing required parameters');
+      }
+
+      // Validate URL before saving
+      const UrlValidator = require('../utils/UrlValidator');
+      if (!UrlValidator.isValidUrl(originalUrl)) {
+        throw new Error('Invalid URL provided');
+      }
+
+      // Validate short code
+      if (!UrlValidator.isValidCustomCode(shortCode)) {
+        throw new Error('Invalid short code provided');
+      }
+
+      // Sanitize inputs
+      const sanitizedUrl = originalUrl.trim().substring(0, 2000);
+      const sanitizedCode = shortCode.trim().substring(0, 20);
+      const sanitizedCreatedBy = createdBy.toString().trim();
+
       const shortLink = new ShortLink({
-        originalUrl,
-        shortCode,
-        createdBy
+        originalUrl: sanitizedUrl,
+        shortCode: sanitizedCode,
+        createdBy: sanitizedCreatedBy
       });
+      
       return await shortLink.save();
     } catch (error) {
       console.error('Error creating short link:', error);

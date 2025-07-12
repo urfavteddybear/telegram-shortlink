@@ -1,4 +1,7 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const cors = require('cors');
 
 class WebServer {
   constructor(database, baseUrl, port = 3000) {
@@ -11,15 +14,91 @@ class WebServer {
   }
 
   setupMiddleware() {
-    // Basic middleware
-    this.app.use(express.json());
-    this.app.use(express.urlencoded({ extended: true }));
+    // Trust Cloudflare proxy (important for IP detection)
+    this.app.set('trust proxy', true);
     
-    // Log all requests
+    // Security middleware
+    this.app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https:"],
+        },
+      },
+    }));
+
+    // CORS configuration
+    this.app.use(cors({
+      origin: process.env.NODE_ENV === 'production' ? 
+        [process.env.BASE_URL] : 
+        true,
+      credentials: true
+    }));
+
+    // Custom IP extraction middleware for Cloudflare
     this.app.use((req, res, next) => {
-      console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+      // Get real IP from Cloudflare headers
+      const realIP = req.headers['cf-connecting-ip'] || 
+                     req.headers['x-forwarded-for'] || 
+                     req.headers['x-real-ip'] || 
+                     req.connection.remoteAddress || 
+                     req.socket.remoteAddress ||
+                     req.ip;
+      
+      // Set the real IP for rate limiting
+      req.clientIP = realIP;
       next();
     });
+
+    // Rate limiting with proper IP detection
+    const limiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100, // limit each IP to 100 requests per windowMs
+      keyGenerator: (req) => req.clientIP, // Use our custom IP extraction
+      message: {
+        error: 'Too many requests',
+        message: 'You have exceeded the rate limit. Please try again later.'
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+
+    // Apply rate limiting to all routes
+    this.app.use(limiter);
+
+    // Stricter rate limiting for redirect endpoints
+    const redirectLimiter = rateLimit({
+      windowMs: 1 * 60 * 1000, // 1 minute
+      max: 20, // limit each IP to 20 redirects per minute
+      keyGenerator: (req) => req.clientIP, // Use our custom IP extraction
+      message: {
+        error: 'Too many redirects',
+        message: 'You have exceeded the redirect limit. Please try again later.'
+      }
+    });
+
+    // Basic middleware
+    this.app.use(express.json({ limit: '10mb' }));
+    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    
+    // Security: Disable X-Powered-By header
+    this.app.disable('x-powered-by');
+    
+    // Log requests with real IP (avoid logging sensitive data)
+    this.app.use((req, res, next) => {
+      const safeUrl = req.url.replace(/[?&]token=[^&]*/g, '?token=***');
+      const realIP = req.clientIP;
+      const cfCountry = req.headers['cf-ipcountry'] || 'Unknown';
+      const cfRay = req.headers['cf-ray'] || 'Unknown';
+      
+      console.log(`${new Date().toISOString()} - ${req.method} ${safeUrl} - IP: ${realIP} - Country: ${cfCountry} - Ray: ${cfRay}`);
+      next();
+    });
+
+    // Apply stricter rate limiting to shortCode routes
+    this.app.use('/:shortCode', redirectLimiter);
   }
 
   setupRoutes() {
@@ -29,6 +108,22 @@ class WebServer {
         status: 'OK', 
         timestamp: new Date().toISOString(),
         service: 'telegram-shortlink-bot'
+      });
+    });
+
+    // IP detection test endpoint (useful for debugging Cloudflare)
+    this.app.get('/ip', (req, res) => {
+      res.json({
+        detectedIP: req.clientIP,
+        headers: {
+          'cf-connecting-ip': req.headers['cf-connecting-ip'],
+          'x-forwarded-for': req.headers['x-forwarded-for'],
+          'x-real-ip': req.headers['x-real-ip'],
+          'cf-ipcountry': req.headers['cf-ipcountry'],
+          'cf-ray': req.headers['cf-ray']
+        },
+        expressIP: req.ip,
+        timestamp: new Date().toISOString()
       });
     });
 
@@ -81,8 +176,17 @@ class WebServer {
   async handleRedirect(req, res) {
     const shortCode = req.params.shortCode;
 
-    // Validate short code format
-    if (!shortCode || shortCode.length < 3) {
+    // Input validation and sanitization
+    if (!shortCode || typeof shortCode !== 'string') {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid short code format'
+      });
+    }
+
+    // Validate short code format (security)
+    const codePattern = /^[a-zA-Z0-9_-]{3,20}$/;
+    if (!codePattern.test(shortCode)) {
       return res.status(404).json({
         error: 'Not Found',
         message: 'Invalid short code format'
@@ -90,18 +194,27 @@ class WebServer {
     }
 
     try {
-      // Find the short link in database (MongoDB Find equivalent)
+      // Find the short link in database
       const shortLink = await this.database.findShortLink(shortCode);
 
       if (!shortLink) {
-        // Not Valid URL - return 404
         return res.status(404).json({
           error: 'Not Found',
           message: 'Short link not found'
         });
       }
 
-      // Valid URL found - increment click count and redirect
+      // Security: Validate the stored URL before redirecting
+      const UrlValidator = require('../utils/UrlValidator');
+      if (!UrlValidator.isValidUrl(shortLink.originalUrl)) {
+        console.error(`Security: Invalid URL detected for shortCode ${shortCode}: ${shortLink.originalUrl}`);
+        return res.status(404).json({
+          error: 'Not Found',
+          message: 'Invalid destination URL'
+        });
+      }
+
+      // Increment click count (non-blocking)
       try {
         await this.database.incrementClickCount(shortCode);
       } catch (error) {
@@ -109,6 +222,10 @@ class WebServer {
         // Don't fail the redirect if click counting fails
       }
 
+      // Security: Add headers to prevent clickjacking
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      
       // Redirect to original URL
       console.log(`Redirecting ${shortCode} to ${shortLink.originalUrl}`);
       res.redirect(302, shortLink.originalUrl);

@@ -7,6 +7,7 @@ class TelegramBotHandler {
     this.database = database;
     this.baseUrl = baseUrl;
     this.userStates = new Map(); // Store user interaction states
+    this.rateLimitMap = new Map(); // Track user request rates
     this.setupHandlers();
     this.startCleanupInterval(); // Start the cleanup interval
   }
@@ -45,6 +46,32 @@ class TelegramBotHandler {
     this.startCleanupInterval();
 
     console.log('🤖 Telegram bot handlers set up');
+  }
+
+  // Rate limiting for bot commands
+  isRateLimited(userId) {
+    const now = Date.now();
+    const userKey = userId.toString();
+    
+    if (!this.rateLimitMap.has(userKey)) {
+      this.rateLimitMap.set(userKey, { count: 1, resetTime: now + 60000 }); // 1 minute window
+      return false;
+    }
+    
+    const userLimit = this.rateLimitMap.get(userKey);
+    
+    if (now > userLimit.resetTime) {
+      // Reset the window
+      this.rateLimitMap.set(userKey, { count: 1, resetTime: now + 60000 });
+      return false;
+    }
+    
+    if (userLimit.count >= 10) { // 10 requests per minute
+      return true;
+    }
+    
+    userLimit.count++;
+    return false;
   }
 
   async handleStart(msg) {
@@ -156,13 +183,23 @@ Need help? Just use /start to begin! 🚀`;
     const userId = msg.from.id.toString();
     const messageText = msg.text;
 
-    if (!messageText) {
-      await this.bot.sendMessage(chatId, "❌ Please send me a text message.");
+    // Rate limiting check
+    if (this.isRateLimited(userId)) {
+      await this.bot.sendMessage(chatId, "⏰ **Rate limit exceeded**\n\nPlease wait a moment before sending another message.");
       return;
     }
 
+    // Input validation
+    if (!messageText || typeof messageText !== 'string') {
+      await this.bot.sendMessage(chatId, "❌ Please send me a valid text message.");
+      return;
+    }
+
+    // Sanitize input
+    const sanitizedText = messageText.trim().substring(0, 2000); // Limit message length
+
     // Handle cancel command
-    if (messageText.toLowerCase() === 'cancel') {
+    if (sanitizedText.toLowerCase() === 'cancel') {
       this.userStates.delete(userId);
       await this.bot.sendMessage(chatId, "❌ **Process cancelled.**\n\nUse /start to create a new short link.");
       return;
@@ -436,14 +473,22 @@ Now, would you like to choose a custom short code?
     }
   }
 
-  // Clean up expired user states (older than 10 minutes)
+  // Clean up expired user states and rate limits
   cleanupExpiredStates() {
     const now = Date.now();
     const expiryTime = 10 * 60 * 1000; // 10 minutes
 
+    // Clean up user states
     for (const [userId, state] of this.userStates.entries()) {
       if (now - state.timestamp > expiryTime) {
         this.userStates.delete(userId);
+      }
+    }
+
+    // Clean up rate limit map
+    for (const [userId, limit] of this.rateLimitMap.entries()) {
+      if (now > limit.resetTime) {
+        this.rateLimitMap.delete(userId);
       }
     }
   }

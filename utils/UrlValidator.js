@@ -13,6 +13,31 @@ class UrlValidator {
       return false;
     }
 
+    // Security: Block dangerous URLs
+    const dangerousPatterns = [
+      /javascript:/i,
+      /data:/i,
+      /vbscript:/i,
+      /file:/i,
+      /ftp:/i,
+      /@/,  // Prevent URLs with @ (potential phishing)
+      /localhost/i,
+      /127\.0\.0\.1/,
+      /0\.0\.0\.0/,
+      /::1/,  // IPv6 localhost
+      /\.local/i,
+      /\.internal/i,
+      /192\.168\./,  // Private network
+      /10\./,        // Private network
+      /172\.(1[6-9]|2[0-9]|3[0-1])\./  // Private network
+    ];
+
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(url)) {
+        return false;
+      }
+    }
+
     // Additional checks for common URL patterns
     const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
     return urlPattern.test(url);
