@@ -5,7 +5,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "docker:build": "docker build -t telegram-shortlink-bot .",
+    "docker:run": "docker run -d --name shortlink-bot -p 3000:3000 --env-file .env telegram-shortlink-bot",
+    "docker:stop": "docker stop shortlink-bot && docker rm shortlink-bot",
+    "docker:logs": "docker logs -f shortlink-bot",
+    "compose:up": "docker-compose up -d",
+    "compose:down": "docker-compose down",
+    "compose:logs": "docker-compose logs -f",
+    "compose:restart": "docker-compose restart"
   },
   "keywords": [
     "telegram",

@@ -220,3 +220,69 @@ For free SSL certificates with Let's Encrypt:
 ```bash
 sudo certbot --nginx -d yourdomain.com
 ```
+
+## 🐳 Docker Deployment
+
+### Quick Start with Docker
+
+1. **Clone and setup**:
+   ```bash
+   git clone <repository-url>
+   cd telegram-shortlink
+   cp .env.docker .env
+   ```
+
+2. **Configure environment**:
+   ```bash
+   nano .env  # Edit with your values
+   ```
+
+3. **Deploy with Docker**:
+   ```bash
+   docker-compose up -d
+   ```
+
+### Docker Features
+
+- **Ultra-lightweight image**: ~50MB (vs ~900MB standard Node.js)
+- **Bot-only container**: Uses your existing MongoDB and infrastructure
+- **Multi-stage build**: Optimized for production
+- **Security**: Non-root user, minimal attack surface
+- **Health checks**: Built-in monitoring
+- **Auto-restart**: Resilient deployment
+
+### Docker Commands
+
+```bash
+# Build and run
+npm run compose:up
+
+# View logs
+npm run compose:logs
+
+# Stop services
+npm run compose:down
+
+# Restart services
+npm run compose:restart
+```
+
+### MongoDB Connection
+
+The Docker container connects to your existing MongoDB using `host.docker.internal`:
+
+```env
+# Local MongoDB
+MONGODB_URI=mongodb://host.docker.internal:27017/shortlink
+
+# MongoDB with auth
+MONGODB_URI=mongodb://user:pass@host.docker.internal:27017/shortlink?authSource=admin
+
+# MongoDB Atlas
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/shortlink
+```
+
+### Documentation
+
+- 📖 **[DOCKER-SIMPLE.md](DOCKER-SIMPLE.md)** - Bot-only containerization (recommended)
+- 📖 **[DOCKER-DEPLOYMENT.md](DOCKER-DEPLOYMENT.md)** - Full stack with MongoDB and Nginx

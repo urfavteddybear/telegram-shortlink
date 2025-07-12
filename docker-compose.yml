@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # Telegram ShortLink Bot
+  shortlink-bot:
+    build: .
+    container_name: telegram-shortlink-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3000
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - MONGODB_URI=${MONGODB_URI}
+      - BASE_URL=${BASE_URL}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
